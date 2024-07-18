@@ -90,7 +90,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"google.golang.org/protobuf/types/known/timestamppb"
 	"os"
 	"time"
 
@@ -199,8 +198,6 @@ var (
 	ErrPartyAcceptRequest            = errors.New("party could not accept request")
 	ErrPartyRemove                   = errors.New("party could not remove")
 	ErrPartyRemoveSelf               = errors.New("party cannot remove self")
-
-	ErrGracePeriodExpired = errors.New("grace period expired")
 
 	ErrGroupNameInUse         = errors.New("group name in use")
 	ErrGroupPermissionDenied  = errors.New("group permission denied")
@@ -958,17 +955,6 @@ type NotificationDelete struct {
 	NotificationID string
 }
 
-type Notification struct {
-	Id         string
-	UserID     string
-	Subject    string
-	Content    map[string]any
-	Code       int
-	Sender     string
-	CreateTime *timestamppb.Timestamp
-	Persistent bool
-}
-
 type WalletUpdate struct {
 	UserID    string
 	Changeset map[string]int64
@@ -1105,8 +1091,6 @@ type NakamaModule interface {
 	NotificationsSend(ctx context.Context, notifications []*NotificationSend) error
 	NotificationSendAll(ctx context.Context, subject string, content map[string]interface{}, code int, persistent bool) error
 	NotificationsDelete(ctx context.Context, notifications []*NotificationDelete) error
-	NotificationsGetId(ctx context.Context, userID string, ids []string) ([]*Notification, error)
-	NotificationsDeleteId(ctx context.Context, userID string, ids []string) error
 
 	WalletUpdate(ctx context.Context, userID string, changeset map[string]int64, metadata map[string]interface{}, updateLedger bool) (updated map[string]int64, previous map[string]int64, err error)
 	WalletsUpdate(ctx context.Context, updates []*WalletUpdate, updateLedger bool) ([]*WalletUpdateResult, error)
