@@ -15,3 +15,4 @@ COPY --from=builder /backend/backend.so /nakama/data/modules
 COPY --from=builder /backend/*.lua /nakama/data/modules/
 COPY --from=builder /backend/build/*.js /nakama/data/modules/build/
 COPY --from=builder /backend/local.yml /nakama/data/
+COPY --from=builder /backend/local.yml /nakama/data/modules/p-panictst.yml
