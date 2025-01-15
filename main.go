@@ -55,6 +55,7 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 	}
 
 	if err := initializer.RegisterMatch(moduleName, func(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runtime.NakamaModule) (runtime.Match, error) {
+		panic("waaat")
 		return &MatchHandler{
 			marshaler:        marshaler,
 			unmarshaler:      unmarshaler,
