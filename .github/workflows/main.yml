@@ -1,0 +1,188 @@
+name: Build and deploy Nakama
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master  # Trigger the action on pushes to the main branch
+
+jobs:
+  build-deploy-nakama:
+    runs-on: ubuntu-latest
+
+    env:
+      instance_id: 'mygame'
+      author: 'My Studio'
+      retry_interval: 30
+      timeout_interval: 900
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Get commit hash
+        id: get_commit_hash
+        run: |
+          echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_ENV
+          echo "branch_name=$(git rev-parse --abbrev-ref HEAD)" >> $GITHUB_ENV
+      - name: Start build
+        id: start_build
+        env:
+          INSTANCE_ID: ${{ env.instance_id }}
+          GUNDAM_URL: ${{ secrets.gundam_url }}
+          PROJECT: ${{ env.namespace }}
+          COMMIT_HASH: ${{ env.commit_hash }}
+          NAKAMA_IMAGE: ${{ env.nakama_image }}
+          REPO_CLONE_URL: ${{ env.repo_clone_url }}
+          AUTHOR: ${{ env.author }}
+        run: |
+          BUILDER_NAMESPACE="b-$INSTANCE_ID"
+          START_TIME=$(date +%s)
+          END_TIME=$((START_TIME + TIMEOUT_DURATION))
+          while true; do
+            RESPONSE=$(mktemp)
+            HTTP_STATUS=$(curl -s -o "$RESPONSE" -w "%{http_code}" -X POST "$GUNDAM_URL/v2/builder/nakama/$BUILDER_NAMESPACE" \
+              -H "Content-Type: application/json" \
+              -d "{
+                    \"namespace\": \"$BUILDER_NAMESPACE\", 
+                    \"commit\": \"$COMMIT_HASH\", 
+                    \"nakama_image\": \"$NAKAMA_IMAGE\", 
+                    \"repo_clone_url\": \"$REPO_CLONE_URL\",
+                    \"labels\": [],
+                    \"author\": \"$AUTHOR\"
+                }")
+          
+            RESPONSE_BODY=$(cat "$RESPONSE")
+            echo "Raw response body: $RESPONSE_BODY"
+          
+            # Check for success condition
+            if [[ "$HTTP_STATUS" -eq 200 ]]; then
+              echo "Build has started for $COMMIT_HASH on $BUILDER_NAMESPACE"
+              exit 0
+            else
+              ERROR_CODE=$(echo "$RESPONSE_BODY" | jq -r '.code')
+              if [[ "$ERROR_CODE" -eq 3 ]]; then
+                exit 0
+              fi
+              echo "Build request failed with status: $HTTP_STATUS. Retrying..."
+            fi
+            # Check if time limit exceeded
+            CURRENT_TIME=$(date +%s)
+            if (( CURRENT_TIME >= END_TIME )); then
+              echo "Retry time limit exceeded. Exiting."
+              exit 1
+            fi
+            # Wait before retrying
+            echo "Retrying in $RETRY_INTERVAL seconds..."
+            sleep $RETRY_INTERVAL
+          done
+      - name: Wait for build
+        id: wait_build
+        env:
+          BUILDER_NAMESPACE: ${{ env.builder_namespace }}
+          RETRY_INTERVAL: 30
+          TIMEOUT_DURATION: 900
+        run: |
+          START_TIME=$(date +%s)
+          END_TIME=$((START_TIME + TIMEOUT_DURATION))
+          while true; do
+            RESPONSE=$(curl -s -X GET "$GUNDAM_URL/v2/builder/nakama/$BUILDER_NAMESPACE" -H "Content-Type: application/json"
+            STATUS=$(echo $RESPONSE | jq -r '.status')
+            IMAGE=$(echo $RESPONSE | jq -r '.image')
+            LOGS=$(echo $RESPONSE | jq -r '.logs')
+          
+            # Check for success condition
+            if [[ "$STATUS" -eq 2 ]]; then
+              echo "Build has completed with resultant image $IMAGE. Attempting to deploy the image to target."
+              echo "image=$IMAGE" >> $GITHUB_ENV
+              exit 0
+            elif [[ "$STATUS" -eq 1 ]]; then
+              echo "Build is in progress. Retrying..."
+            elif [[ "$STATUS" -eq 3 ]]; then
+              echo "Build has failed with the following logs."
+              echo "$LOGS | jq -r '.[]'"
+              exit 1
+            fi
+            # Check if time limit exceeded
+            CURRENT_TIME=$(date +%s)
+            if (( CURRENT_TIME >= END_TIME )); then
+              echo "Retry time limit exceeded. Exiting."
+              exit 1
+            fi
+            echo "Waiting..."
+            sleep $RETRY_INTERVAL
+          done
+      - name: Start deploy
+        id: start_deploy
+        env:
+          IMAGE: ${{ env.image }}
+          INSTANCE_ID: ${{ env.instance_id }}
+          RETRY_INTERVAL: ${{ env.retry_interval }}
+          TIMEOUT_DURATION: ${{ env.timeout_interval }}
+        run: |
+          NAKAMA_NAMESPACE="p-$INSTANCE_ID"
+          START_TIME=$(date +%s)
+          END_TIME=$((START_TIME + TIMEOUT_DURATION))
+          while true; do
+            RESPONSE=$(mktemp)
+            HTTP_STATUS=$(curl -s -o "$RESPONSE" -w "%{http_code}" -X PUT "$GUNDAM_URL/v2/project/nakama/$NAKAMA_NAMESPACE" \
+              -H "Content-Type: application/json" \
+              -d "{\"image\": \"$IMAGE\"}")
+            RESPONSE_BODY=$(cat "$RESPONSE")
+            echo "Raw response body: $RESPONSE_BODY"
+            # Check for success condition
+            if [[ "$HTTP_STATUS" -eq 200 ]]; then
+              echo "Deployment has started with resultant image $IMAGE onto $NAKAMA_NAMESPACE."
+              exit 0
+            elif [[ "$HTTP_STATUS" -eq 400 ]]; then
+              echo "Deploy is in progress. Retrying..."
+            else
+              echo "Deploy has failed with code $HTTP_STATUS. Please check Heroic Cloud for more information."
+              exit 1
+            fi
+            # Check if time limit exceeded
+            CURRENT_TIME=$(date +%s)
+            if (( CURRENT_TIME >= END_TIME )); then
+              echo "Retry time limit exceeded. Exiting."
+              exit 1
+            fi
+            # Wait before retrying
+            echo "Retrying in $RETRY_INTERVAL seconds..."
+            sleep $RETRY_INTERVAL
+          done
+      - name: Wait for deploy
+        id: wait_deploy
+        env:
+          NAKAMA_NAMESPACE: ${{ env.nakama_namespace }}
+          RETRY_INTERVAL: ${{ env.retry_interval }}
+          TIMEOUT_DURATION: ${{ env.timeout_interval }}
+        run: |
+          START_TIME=$(date +%s)
+          END_TIME=$((START_TIME + TIMEOUT_DURATION))
+          while true; do
+            RESPONSE=$(curl -s -X GET "$GUNDAM_URL/v2/project/nakama/$NAKAMA_NAMESPACE" \
+              -H "Content-Type: application/json")
+          
+            STATUS=$(echo $RESPONSE | jq -r '.operation.status')
+            LOGS=$(echo $RESPONSE | jq -r '.operation.errors')
+          
+            # Check for success condition
+            if [[ "$STATUS" -eq 2 ]]; then
+              echo "Deploy has completed successfully."
+              exit 0
+            elif [[ "$STATUS" -eq 1 ]]; then
+              echo "Deploy is in progress. Retrying..."
+            elif [[ "$STATUS" -eq 3 ]]; then
+              echo "Deploy has failed with the following logs."
+              echo "$LOGS | jq -r '.[]'"
+              exit 1
+            fi
+            # Check if time limit exceeded
+            CURRENT_TIME=$(date +%s)
+            if (( CURRENT_TIME >= END_TIME )); then
+              echo "Retry time limit exceeded. Exiting."
+              exit 1
+            fi
+            # Wait before retrying
+            echo "Retrying in $RETRY_INTERVAL seconds..."
+            sleep $RETRY_INTERVAL
+          done
