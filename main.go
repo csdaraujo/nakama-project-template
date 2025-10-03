@@ -17,9 +17,10 @@ package main
 import (
 	"context"
 	"database/sql"
+	"time"
+
 	"github.com/heroiclabs/nakama-common/runtime"
 	"google.golang.org/protobuf/encoding/protojson"
-	"time"
 )
 
 var (
@@ -70,10 +71,10 @@ func InitModule(ctx context.Context, logger runtime.Logger, db *sql.DB, nk runti
 
 	logger.Info("Plugin loaded in '%d' msec.", time.Now().Sub(initStart).Milliseconds())
 
-	go func() {
-		time.Sleep(2 * time.Minute)
-		panic("waaat")
-	}()
-
+	/*	go func() {
+			time.Sleep(2 * time.Minute)
+			panic("waaat")
+		}()
+	*/
 	return nil
 }
