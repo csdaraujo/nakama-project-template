@@ -1,6 +1,6 @@
 module github.com/heroiclabs/nakama-project-template
 
-go 1.25.1
+go 1.25.0
 
 require (
 	github.com/heroiclabs/nakama-common v1.42.0
